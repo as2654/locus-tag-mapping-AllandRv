@@ -18,30 +18,32 @@ fi
 new_fasta=${1}
 old_fasta=${2}
 
-# Create database prefixes by removing .fasta extension
-new_db="${new_fasta%.*}"
-old_db="${old_fasta%.*}"
+# Move to blast_resources directory (relative to script location)
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${script_dir}/../blast_resources" || exit 1
 
-# Create BLAST databases
-#makeblastdb -in "${new_fasta}" -dbtype nucl -out "${new_db}" || exit 1
+# Create database prefixes by removing .fasta extension
+new_db="$(basename "${new_fasta%.*}")"
+old_db="$(basename "${old_fasta%.*}")"
+
+# Create BLAST database
 makeblastdb -in "${old_fasta}" -dbtype nucl -out "${old_db}" || exit 1
 
 # Run unidirectional BLAST searches with stringent criteria
 blastn -query "${new_fasta}" -db "${old_db}" \
-  -outfmt "6 qseqid sseqid pident qcovs length evalue bitscore" \
-  -perc_identity 70 \
-  -qcov_hsp_perc 90 \
+  -outfmt "6 qseqid sseqid pident qcovs length slen evalue bitscore" \
+  -perc_identity 25 \
+  -qcov_hsp_perc 50 \
   -evalue 1e-2 \
   -out "${new_db}_vs_${old_db}.tab" \
   -num_threads $(nproc) || exit 1
 
-#blastn -query "${old_fasta}" -db "${new_db}" \
-#  -outfmt "6 qseqid sseqid pident qcovs length evalue bitscore" \
-#  -perc_identity 97 \
-#  -qcov_hsp_perc 97 \
-#  -out "${old_db}_vs_${new_db}.tab" \
-#  -num_threads $(nproc) || exit 1
+# Add subject coverage statistic as 5th column
+tmp=$(mktemp)
+awk 'BEGIN{OFS="\t"} {
+    scovs = ($5 / $6) * 100;
+    print $1, $2, $3, $4, scovs, $5, $6, $7, $8
+}' "${new_db}_vs_${old_db}.tab" > "$tmp" && mv "$tmp" "${new_db}_vs_${old_db}.tab"
 
 echo "BLAST results saved to:"
 echo "- ${new_db}_vs_${old_db}.tab"
-#echo "- ${old_db}_vs_${new_db}.tab"
